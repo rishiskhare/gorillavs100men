@@ -1,24 +1,28 @@
-import * as THREE from 'three';
-import { OrbitControls } from 'three-stdlib';
-import { DIRECTIONS, SHIFT, SPACE } from './utils';
+import * as THREE from "three";
+import { OrbitControls } from "three-stdlib";
+import { SHIFT, SPACE } from "./utils";
 
 export class CharacterControls {
   model: THREE.Group;
   mixer: THREE.AnimationMixer;
   animationsMap: Map<string, THREE.AnimationAction>;
-  currentAction = 'Idle';
+  currentAction = "Idle";
   isJumping = false;
   velocityY = 0;
   gravity = -9.8;
-  walkVelocity = 4;
-  runVelocity = 10;
+  walkVelocity = 6;
+  runVelocity = 12;
   fadeDuration = 0.2;
+
+  currentRotationSpeed = 0;
+  maxRotationSpeed = Math.PI;
+  rotationAcceleration = Math.PI * 3;
+  rotationDamping = Math.PI * 4;
+
   orbit: OrbitControls;
   camera: THREE.Camera;
   cameraTarget = new THREE.Vector3();
-  walkDir = new THREE.Vector3();
-  rotAngle = new THREE.Vector3(0, 1, 0);
-  rotQuat = new THREE.Quaternion();
+  private cameraOffset = new THREE.Vector3(0, 3, -6);
 
   constructor(
     model: THREE.Group,
@@ -32,58 +36,121 @@ export class CharacterControls {
     this.animationsMap = animationsMap;
     this.orbit = orbit;
     this.camera = camera;
-    this.model.rotation.y += Math.PI;
-    this.playAnim('Idle');
-    this.updateCamera(0, 0);
+
+    this.orbit.enablePan = false;
+    this.orbit.enableRotate = false;
+    this.orbit.enableZoom = true;
+
+    this.playAnim("Idle");
+    this.updateCamera();
   }
 
   update(delta: number, keys: Record<string, boolean>) {
+    let moveForward = false;
+    let moveBackward = false;
+    let turnLeft = false;
+    let turnRight = false;
+
+    if (keys["ArrowUp"]) moveForward = true;
+    if (keys["ArrowDown"]) moveBackward = true;
+    if (keys["ArrowLeft"]) turnLeft = true;
+    if (keys["ArrowRight"]) turnRight = true;
+
+    let verticalMovement = 0;
     if (keys[SPACE] && !this.isJumping) this.startJump();
     if (this.isJumping) {
       this.velocityY += this.gravity * delta;
-      this.model.position.y += this.velocityY * delta;
-      if (this.model.position.y <= 0) {
-        this.model.position.y = 0;
-        this.isJumping = false;
-        this.playAnim('Idle');
-      }
+      verticalMovement = this.velocityY * delta;
     }
-    const moving = DIRECTIONS.some(d => keys[d]);
-    const sprinting = moving && (keys[SHIFT] || keys['Shift'] || keys['ShiftLeft'] || keys['ShiftRight']);
-    const nextAction = this.isJumping ? 'JumpInPlace' : moving ? (sprinting ? 'Run' : 'Walk') : 'Idle';
-    if (nextAction !== this.currentAction) this.playAnim(nextAction);
-    this.mixer.update(delta);
-    if (moving) {
-      const angleCam = Math.atan2(
-        this.camera.position.x - this.model.position.x,
-        this.camera.position.z - this.model.position.z
-      );
-      const offset = this.directionOffset(keys);
-      this.rotQuat.setFromAxisAngle(this.rotAngle, angleCam + offset + Math.PI);
-      this.model.quaternion.rotateTowards(this.rotQuat, 0.2);
-      this.camera.getWorldDirection(this.walkDir);
-      this.walkDir.y = 0;
-      this.walkDir.normalize();
-      this.walkDir.applyAxisAngle(this.rotAngle, offset);
-      const velocity = sprinting ? this.runVelocity : this.walkVelocity;
-      const dx = this.walkDir.x * velocity * delta;
-      const dz = this.walkDir.z * velocity * delta;
-      const candidatePos = this.model.position.clone().add(new THREE.Vector3(dx, 0, dz));
-      const gorillaRadius = 0.5;
-      let collision = false;
-      const collidables = (window as any).men as THREE.Object3D[] || [];
+
+    let targetRotationSpeed = 0;
+    if (turnLeft) {
+      targetRotationSpeed = this.maxRotationSpeed;
+    }
+    if (turnRight) {
+      targetRotationSpeed = -this.maxRotationSpeed;
+    }
+
+    const acceleration =
+      turnLeft || turnRight ? this.rotationAcceleration : this.rotationDamping;
+
+    this.currentRotationSpeed = THREE.MathUtils.lerp(
+      this.currentRotationSpeed,
+      targetRotationSpeed,
+      1.0 - Math.exp(-acceleration * delta)
+    );
+
+    this.model.rotation.y += this.currentRotationSpeed * delta;
+
+    const sprinting =
+      (moveForward || moveBackward) &&
+      (keys[SHIFT] || keys["Shift"] || keys["ShiftLeft"] || keys["ShiftRight"]);
+    const currentVelocity = sprinting ? this.runVelocity : this.walkVelocity;
+    let moveDistance = 0;
+
+    if (moveForward) {
+      moveDistance = currentVelocity * delta;
+    }
+    if (moveBackward) {
+      moveDistance = -currentVelocity * delta;
+    }
+
+    const moveVector = new THREE.Vector3(0, 0, 1);
+    moveVector.applyQuaternion(this.model.quaternion);
+    moveVector.normalize();
+    const horizontalDeltaPosition = moveVector.multiplyScalar(moveDistance);
+
+    const candidatePos = this.model.position.clone();
+    candidatePos.add(horizontalDeltaPosition);
+    candidatePos.y += verticalMovement;
+
+    const gorillaRadius = 0.5;
+    let collision = false;
+    if (moveDistance !== 0) {
+      const horizontalCandidatePos = this.model.position
+        .clone()
+        .add(horizontalDeltaPosition);
+      const collidables = ((window as any).men as THREE.Object3D[]) || [];
       for (const m of collidables) {
         const mRadius = m.userData.collisionRadius || 1;
-        if (candidatePos.distanceTo(m.position) < (gorillaRadius + mRadius)) {
+        if (
+          horizontalCandidatePos.distanceTo(m.position) <
+          gorillaRadius + mRadius
+        ) {
           collision = true;
           break;
         }
       }
-      if (!collision) {
-        this.model.position.copy(candidatePos);
-        this.updateCamera(dx, dz);
-      }
     }
+
+    if (!collision) {
+      this.model.position.x = candidatePos.x;
+      this.model.position.z = candidatePos.z;
+    }
+    this.model.position.y = candidatePos.y;
+
+    if (this.isJumping && this.model.position.y <= 0) {
+      this.model.position.y = 0;
+      this.isJumping = false;
+      this.velocityY = 0;
+    }
+
+    let nextAction = "Idle";
+    if (this.isJumping) {
+      nextAction = "JumpInPlace";
+    } else if (moveForward || moveBackward) {
+      nextAction = sprinting ? "Run" : "Walk";
+    } else if (Math.abs(this.currentRotationSpeed) > 0.1) {
+      nextAction = "Idle";
+    }
+
+    if (nextAction !== this.currentAction) {
+      this.playAnim(nextAction);
+    }
+
+    this.mixer.update(delta);
+
+    this.updateCamera();
   }
 
   private startJump() {
@@ -91,45 +158,51 @@ export class CharacterControls {
     this.velocityY = 4;
     const timeToApex = this.velocityY / -this.gravity;
     const totalJumpTime = 2 * timeToApex;
-    const jumpAction = this.animationsMap.get('JumpInPlace');
+    const jumpAction = this.animationsMap.get("JumpInPlace");
     if (jumpAction) {
       const clipDuration = jumpAction.getClip().duration;
-      jumpAction.timeScale = clipDuration / totalJumpTime;
+      jumpAction.timeScale = 1;
       jumpAction.reset();
       jumpAction.setLoop(THREE.LoopOnce, 1);
       jumpAction.clampWhenFinished = true;
     }
-    this.playAnim('JumpInPlace');
+    this.playAnim("JumpInPlace");
   }
 
   private playAnim(name: string) {
     const toPlay = this.animationsMap.get(name);
     const current = this.animationsMap.get(this.currentAction);
-    current?.fadeOut(this.fadeDuration);
-    toPlay?.reset().fadeIn(this.fadeDuration).play();
+    if (current && current !== toPlay) {
+      current.fadeOut(this.fadeDuration);
+    }
+    if (toPlay) {
+      toPlay.reset().fadeIn(this.fadeDuration).play();
+    } else {
+      console.warn(`Animation "${name}" not found!`);
+    }
     this.currentAction = name;
   }
 
-  private updateCamera(dx: number, dz: number) {
-    this.camera.position.x += dx;
-    this.camera.position.z += dz;
+  private updateCamera() {
     this.cameraTarget.set(
       this.model.position.x,
-      this.model.position.y + 1,
+      this.model.position.y + 1.5,
       this.model.position.z
     );
-    this.orbit.target = this.cameraTarget;
-  }
 
-  private directionOffset(keys: Record<string, boolean>) {
-    if (keys['ArrowUp'] && keys['ArrowLeft']) return Math.PI / 4;
-    if (keys['ArrowUp'] && keys['ArrowRight']) return -Math.PI / 4;
-    if (keys['ArrowUp']) return 0;
-    if (keys['ArrowDown'] && keys['ArrowLeft']) return Math.PI * 3 / 4;
-    if (keys['ArrowDown'] && keys['ArrowRight']) return -Math.PI * 3 / 4;
-    if (keys['ArrowDown']) return Math.PI;
-    if (keys['ArrowLeft']) return Math.PI / 2;
-    if (keys['ArrowRight']) return -Math.PI / 2;
-    return 0;
+    const desiredOffsetDirection = this.cameraOffset.clone().normalize();
+    desiredOffsetDirection.applyQuaternion(this.model.quaternion);
+
+    const currentDistance = this.camera.position.distanceTo(this.orbit.target);
+
+    const desiredPosition = this.cameraTarget
+      .clone()
+      .add(desiredOffsetDirection.multiplyScalar(currentDistance));
+
+    this.camera.position.copy(desiredPosition);
+
+    this.orbit.target.copy(this.cameraTarget);
+
+    this.orbit.update();
   }
 }
