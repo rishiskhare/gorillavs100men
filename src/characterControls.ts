@@ -156,11 +156,8 @@ export class CharacterControls {
   private startJump() {
     this.isJumping = true;
     this.velocityY = 4;
-    const timeToApex = this.velocityY / -this.gravity;
-    const totalJumpTime = 2 * timeToApex;
     const jumpAction = this.animationsMap.get("JumpInPlace");
     if (jumpAction) {
-      const clipDuration = jumpAction.getClip().duration;
       jumpAction.timeScale = 1;
       jumpAction.reset();
       jumpAction.setLoop(THREE.LoopOnce, 1);
