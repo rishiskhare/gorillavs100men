@@ -104,30 +104,7 @@ export class CharacterControls {
     candidatePos.add(horizontalDeltaPosition);
     candidatePos.y += verticalMovement;
 
-    const gorillaRadius = 0.5;
-    let collision = false;
-    if (moveDistance !== 0) {
-      const horizontalCandidatePos = this.model.position
-        .clone()
-        .add(horizontalDeltaPosition);
-      const collidables = ((window as any).men as THREE.Object3D[]) || [];
-      for (const m of collidables) {
-        const mRadius = m.userData.collisionRadius || 1;
-        if (
-          horizontalCandidatePos.distanceTo(m.position) <
-          gorillaRadius + mRadius
-        ) {
-          collision = true;
-          break;
-        }
-      }
-    }
-
-    if (!collision) {
-      this.model.position.x = candidatePos.x;
-      this.model.position.z = candidatePos.z;
-    }
-    this.model.position.y = candidatePos.y;
+    this.model.position.copy(candidatePos);
 
     if (this.isJumping && this.model.position.y <= 0) {
       this.model.position.y = 0;
@@ -178,16 +155,21 @@ export class CharacterControls {
   }
 
   private startJump() {
+    if (this.isJumping) return;
+
     this.isJumping = true;
     this.velocityY = 4;
+
     const jumpAction = this.animationsMap.get("JumpInPlace");
     if (jumpAction) {
       jumpAction.timeScale = 1;
       jumpAction.reset();
       jumpAction.setLoop(THREE.LoopOnce, 1);
       jumpAction.clampWhenFinished = true;
+      this.playAnim("JumpInPlace");
+    } else {
+      this.playAnim("Idle");
     }
-    this.playAnim("JumpInPlace");
   }
 
   private playAnim(name: string, timeScale: number = 1) {

@@ -1,10 +1,12 @@
-import * as THREE from 'three';
-import { OrbitControls, GLTFLoader, SkeletonUtils } from 'three-stdlib';
-import { CharacterControls } from './characterControls';
-import { createLoadingScreen, removeLoadingScreen } from './loadingScreen';
+import * as THREE from "three";
+import { OrbitControls, GLTFLoader, SkeletonUtils } from "three-stdlib";
+import { CharacterControls } from "./characterControls";
+import { createLoadingScreen, removeLoadingScreen } from "./loadingScreen";
+import { Human } from "./human";
 
-const fontLink = document.createElement('link');
-fontLink.href = "https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap";
+const fontLink = document.createElement("link");
+fontLink.href =
+  "https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap";
 fontLink.rel = "stylesheet";
 document.head.appendChild(fontLink);
 
@@ -12,13 +14,14 @@ const loadingScreen = createLoadingScreen();
 
 const manager = new THREE.LoadingManager();
 manager.onProgress = () => {
-  const loadingText = loadingScreen.querySelector('p');
+  const loadingText = loadingScreen.querySelector("p");
   if (loadingText) {
     loadingText.innerText = "Loading...";
   }
 };
 manager.onLoad = () => {
   removeLoadingScreen();
+  animate();
 };
 manager.onError = (url) => {
   console.error(`Error loading: ${url}`);
@@ -27,7 +30,12 @@ manager.onError = (url) => {
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87cefa);
 
-const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+const camera = new THREE.PerspectiveCamera(
+  60,
+  window.innerWidth / window.innerHeight,
+  0.1,
+  1000
+);
 camera.position.set(0, 5, 10);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -65,9 +73,9 @@ scene.add(dir);
 function createTileTexture() {
   const size = 512;
   const mainDivisions = 2;
-  const canvas = document.createElement('canvas');
+  const canvas = document.createElement("canvas");
   canvas.width = canvas.height = size;
-  const ctx = canvas.getContext('2d')!;
+  const ctx = canvas.getContext("2d")!;
   ctx.fillStyle = "#0F8C1F";
   ctx.fillRect(0, 0, size, size);
   const mainTileSize = size / mainDivisions;
@@ -84,6 +92,7 @@ function createTileTexture() {
     ctx.lineTo(size, pos);
     ctx.stroke();
   }
+
   ctx.strokeStyle = "rgba(255,255,255,0.3)";
   for (let i = 0; i < mainDivisions; i++) {
     for (let j = 0; j < mainDivisions; j++) {
@@ -112,40 +121,50 @@ const groundMat = new THREE.MeshStandardMaterial({
   side: THREE.DoubleSide,
   color: "#0F8C1F",
   roughness: 0.9,
-  metalness: 0.0
+  metalness: 0.0,
 });
 const groundGeo = new THREE.PlaneGeometry(1000, 1000);
 const ground = new THREE.Mesh(groundGeo, groundMat);
 ground.rotation.x = -Math.PI / 2;
-ground.rotation.z = -0.40;
+ground.rotation.z = -0.4;
 ground.receiveShadow = true;
 scene.add(ground);
 
 let controls: CharacterControls;
+let gorillaModel: THREE.Group;
 const loaderGorilla = new GLTFLoader(manager);
-loaderGorilla.load('models/Gorilla.glb', (gltf) => {
-  const model = gltf.scene;
-  model.scale.set(1.5, 1.5, 1.5);
-  model.traverse((object: any) => { if (object.isMesh) object.castShadow = true; });
-  scene.add(model);
-  const mixer = new THREE.AnimationMixer(model);
+loaderGorilla.load("models/Gorilla.glb", (gltf) => {
+  gorillaModel = gltf.scene;
+  gorillaModel.scale.set(1.75, 1.75, 1.75);
+  gorillaModel.traverse((object: any) => {
+    if (object.isMesh) object.castShadow = true;
+  });
+  scene.add(gorillaModel);
+  const mixer = new THREE.AnimationMixer(gorillaModel);
   const map = new Map<string, THREE.AnimationAction>();
   for (const clip of gltf.animations) {
-    const name = clip.name.replace(/^loop/i, '');
+    const name = clip.name.replace(/^loop/i, "");
     if (/Idle|Walk|Run|Jump/i.test(name)) {
       map.set(name, mixer.clipAction(clip));
     }
   }
-  controls = new CharacterControls(model, mixer, map, orbit, camera);
+  controls = new CharacterControls(gorillaModel, mixer, map, orbit, camera);
+  if (men.length > 0) {
+    human = new Human(men, gorillaModel);
+  }
 });
 
 const mixers: THREE.AnimationMixer[] = [];
 const men: THREE.Object3D[] = [];
 (window as any).men = men;
+let human: Human;
 
 const loaderMan = new GLTFLoader(manager);
-loaderMan.load('models/Man.glb', (gltf) => {
-  const idleClip = gltf.animations.find(clip => /Idle/i.test(clip.name));
+loaderMan.load("models/Man.glb", (gltf) => {
+  const manAnimations = gltf.animations;
+  const idleClip = manAnimations.find((clip) => /Idle/i.test(clip.name));
+  const runClip = manAnimations.find((clip) => /Run/i.test(clip.name));
+
   for (let i = 0; i < 100; i++) {
     const man = SkeletonUtils.clone(gltf.scene);
     man.traverse((child: any) => {
@@ -155,9 +174,10 @@ loaderMan.load('models/Man.glb', (gltf) => {
       }
     });
     const safeZone = 5;
-    let x = 0, z = 0;
+    let x = 0,
+      z = 0;
     do {
-      const radius = Math.random() * 50;
+      const radius = Math.random() * 50 + safeZone;
       const angle = Math.random() * Math.PI * 2;
       x = radius * Math.cos(angle);
       z = radius * Math.sin(angle);
@@ -165,30 +185,44 @@ loaderMan.load('models/Man.glb', (gltf) => {
     man.position.set(x, 0, z);
     man.userData.collisionRadius = 1;
     men.push(man);
+
     const mixer = new THREE.AnimationMixer(man);
-    if (idleClip) { mixer.clipAction(idleClip).reset().play(); }
+    const actions = new Map<string, THREE.AnimationAction>();
+    if (idleClip) actions.set("Idle", mixer.clipAction(idleClip));
+    if (runClip) actions.set("Run", mixer.clipAction(runClip));
+    man.userData.mixer = mixer;
+    man.userData.actions = actions;
+    man.userData.currentAction = "Idle";
+
     mixers.push(mixer);
     scene.add(man);
+  }
+
+  if (gorillaModel) {
+    human = new Human(men, gorillaModel);
   }
 });
 
 const keys: Record<string, boolean> = {};
-window.addEventListener('keydown', e => { keys[e.code] = true; });
-window.addEventListener('keyup', e => { keys[e.code] = false; });
+window.addEventListener("keydown", (e) => {
+  keys[e.code] = true;
+});
+window.addEventListener("keyup", (e) => {
+  keys[e.code] = false;
+});
+
+window.addEventListener("resize", () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
 
 const clock = new THREE.Clock();
 function animate() {
   const dt = clock.getDelta();
   if (controls) controls.update(dt, keys);
-  mixers.forEach(mixer => mixer.update(dt));
+  if (human) human.update(dt);
   orbit.update();
   renderer.render(scene, camera);
   requestAnimationFrame(animate);
 }
-animate();
-
-window.addEventListener('resize', () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-});
