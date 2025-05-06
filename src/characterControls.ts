@@ -136,16 +136,40 @@ export class CharacterControls {
     }
 
     let nextAction = "Idle";
+    let timeScale = 1;
     if (this.isJumping) {
       nextAction = "JumpInPlace";
     } else if (moveForward || moveBackward) {
       nextAction = sprinting ? "Run" : "Walk";
+      if (moveBackward) {
+        timeScale = -1;
+      }
     } else if (Math.abs(this.currentRotationSpeed) > 0.1) {
       nextAction = "Idle";
     }
 
+    const walkAction = this.animationsMap.get("Walk");
+    const runAction = this.animationsMap.get("Run");
+    if (
+      walkAction &&
+      walkAction.timeScale !== (moveBackward && nextAction === "Walk" ? -1 : 1)
+    ) {
+      walkAction.timeScale = moveBackward && nextAction === "Walk" ? -1 : 1;
+    }
+    if (
+      runAction &&
+      runAction.timeScale !== (moveBackward && nextAction === "Run" ? -1 : 1)
+    ) {
+      runAction.timeScale = moveBackward && nextAction === "Run" ? -1 : 1;
+    }
+
     if (nextAction !== this.currentAction) {
-      this.playAnim(nextAction);
+      this.playAnim(nextAction, timeScale);
+    } else if (nextAction === "Walk" || nextAction === "Run") {
+      const currentAnim = this.animationsMap.get(this.currentAction);
+      if (currentAnim && currentAnim.timeScale !== timeScale) {
+        currentAnim.timeScale = timeScale;
+      }
     }
 
     this.mixer.update(delta);
@@ -166,14 +190,20 @@ export class CharacterControls {
     this.playAnim("JumpInPlace");
   }
 
-  private playAnim(name: string) {
+  private playAnim(name: string, timeScale: number = 1) {
     const toPlay = this.animationsMap.get(name);
     const current = this.animationsMap.get(this.currentAction);
+
     if (current && current !== toPlay) {
       current.fadeOut(this.fadeDuration);
     }
+
     if (toPlay) {
-      toPlay.reset().fadeIn(this.fadeDuration).play();
+      toPlay.timeScale = timeScale;
+      if (!toPlay.isRunning() || name !== this.currentAction) {
+        toPlay.reset();
+      }
+      toPlay.fadeIn(this.fadeDuration).play();
     } else {
       console.warn(`Animation "${name}" not found!`);
     }
