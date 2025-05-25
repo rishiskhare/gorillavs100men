@@ -104,7 +104,6 @@ export class CharacterControls {
 
     if (this.isEmoting) {
       if (tryingToAttack || tryingToEmote || tryingToMove) {
-        const currentEmoteAction = this.animationsMap.get(this.emoteAnimationName);
         if (this.emoteFinishListener) {
           this.mixer.removeEventListener('finished', this.emoteFinishListener);
           this.emoteFinishListener = null;
