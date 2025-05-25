@@ -10,6 +10,12 @@ fontLink.href =
 fontLink.rel = "stylesheet";
 document.head.appendChild(fontLink);
 
+const fontLink2 = document.createElement("link");
+fontLink2.href =
+  "https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap";
+fontLink2.rel = "stylesheet";
+document.head.appendChild(fontLink2);
+
 const loadingScreen = createLoadingScreen();
 
 const manager = new THREE.LoadingManager();
@@ -144,14 +150,20 @@ loaderGorilla.load("models/Gorilla.glb", (gltf) => {
   const map = new Map<string, THREE.AnimationAction>();
   for (const clip of gltf.animations) {
     const name = clip.name.replace(/^loop/i, "");
-    if (/Idle|Walk|Run|Jump/i.test(name)) {
+    if (/Idle|Walk|Run|Jump|Attack/i.test(name)) {
       map.set(name, mixer.clipAction(clip));
     }
   }
-  controls = new CharacterControls(gorillaModel, mixer, map, orbit, camera);
+  controls = new CharacterControls(gorillaModel, mixer, map, orbit, camera, GORILLA_MAX_HEALTH);
+  gorillaModel.userData.controls = controls;
+  createGorillaHealthBarUI();
+  const initialGorillaHealth = controls.getGorillaHealthState();
+  (window as any).updateGorillaHealthDisplay(initialGorillaHealth.current, initialGorillaHealth.max);
   if (men.length > 0) {
     human = new Human(men, gorillaModel);
+    controls.setHumanRef(human);
   }
+  gorillaModel.userData.camera = camera;
 });
 
 const mixers: THREE.AnimationMixer[] = [];
@@ -164,6 +176,11 @@ loaderMan.load("models/Man.glb", (gltf) => {
   const manAnimations = gltf.animations;
   const idleClip = manAnimations.find((clip) => /Idle/i.test(clip.name));
   const runClip = manAnimations.find((clip) => /Run/i.test(clip.name));
+  const deathClip = manAnimations.find((clip) => /Death|Die/i.test(clip.name));
+  const punchRightClip = manAnimations.find((clip) => /Punch_Right/i.test(clip.name));
+  const punchLeftClip = manAnimations.find((clip) => /Punch_Left/i.test(clip.name));
+  const kickRightClip = manAnimations.find((clip) => /Kick_Right/i.test(clip.name));
+  const kickLeftClip = manAnimations.find((clip) => /Kick_Left/i.test(clip.name));
 
   for (let i = 0; i < 100; i++) {
     const man = SkeletonUtils.clone(gltf.scene);
@@ -190,6 +207,11 @@ loaderMan.load("models/Man.glb", (gltf) => {
     const actions = new Map<string, THREE.AnimationAction>();
     if (idleClip) actions.set("Idle", mixer.clipAction(idleClip));
     if (runClip) actions.set("Run", mixer.clipAction(runClip));
+    if (deathClip) actions.set("Death", mixer.clipAction(deathClip));
+    if (punchRightClip) actions.set("Punch_Right", mixer.clipAction(punchRightClip));
+    if (punchLeftClip) actions.set("Punch_Left", mixer.clipAction(punchLeftClip));
+    if (kickRightClip) actions.set("Kick_Right", mixer.clipAction(kickRightClip));
+    if (kickLeftClip) actions.set("Kick_Left", mixer.clipAction(kickLeftClip));
     man.userData.mixer = mixer;
     man.userData.actions = actions;
     man.userData.currentAction = "Idle";
@@ -200,6 +222,11 @@ loaderMan.load("models/Man.glb", (gltf) => {
 
   if (gorillaModel) {
     human = new Human(men, gorillaModel);
+    if (controls) {
+        controls.setHumanRef(human);
+    }
+    gorillaModel.userData.camera = camera;
+    gorillaModel.userData.controls = controls;
   }
 });
 
@@ -226,3 +253,79 @@ function animate() {
   renderer.render(scene, camera);
   requestAnimationFrame(animate);
 }
+
+let gorillaHealthBarContainer: HTMLDivElement;
+let gorillaHealthFill: HTMLDivElement;
+let gorillaHealthText: HTMLDivElement;
+
+const GORILLA_MAX_HEALTH = 500;
+
+function createGorillaHealthBarUI() {
+  gorillaHealthBarContainer = document.createElement('div');
+  gorillaHealthBarContainer.style.position = 'absolute';
+  gorillaHealthBarContainer.style.top = '20px';
+  gorillaHealthBarContainer.style.left = '20px';
+  gorillaHealthBarContainer.style.display = 'flex';
+  gorillaHealthBarContainer.style.alignItems = 'center';
+  gorillaHealthBarContainer.style.fontFamily = '"Press Start 2P", monospace';
+  gorillaHealthBarContainer.style.zIndex = '100';
+
+  const label = document.createElement('span');
+  label.textContent = 'GORILLA HP:';
+  label.style.color = '#FFFFFF';
+  label.style.fontSize = '16px';
+  label.style.marginRight = '10px';
+  label.style.textShadow = '2px 2px 0 #000000';
+
+  const barBackground = document.createElement('div');
+  barBackground.style.width = '250px';
+  barBackground.style.height = '25px';
+  barBackground.style.backgroundColor = '#2d2d2d';
+  barBackground.style.border = '3px solid #000000';
+  barBackground.style.position = 'relative';
+  barBackground.style.boxShadow = 
+    'inset 2px 2px 0 #1a1a1a, inset -2px -2px 0 #404040';
+
+  gorillaHealthFill = document.createElement('div');
+  gorillaHealthFill.style.height = '100%';
+  gorillaHealthFill.style.backgroundColor = '#00ff00';
+  gorillaHealthFill.style.transition = 'width 0.3s ease-out';
+  gorillaHealthFill.style.boxShadow = 'inset 1px 1px 0 #88ff88';
+
+  gorillaHealthText = document.createElement('div');
+  gorillaHealthText.style.position = 'absolute';
+  gorillaHealthText.style.top = '50%';
+  gorillaHealthText.style.left = '50%';
+  gorillaHealthText.style.transform = 'translate(-50%, -50%)';
+  gorillaHealthText.style.color = '#FFFFFF';
+  gorillaHealthText.style.fontSize = '12px';
+  gorillaHealthText.style.textShadow = '1px 1px 0 #000000';
+
+  barBackground.appendChild(gorillaHealthFill);
+  barBackground.appendChild(gorillaHealthText);
+  gorillaHealthBarContainer.appendChild(label);
+  gorillaHealthBarContainer.appendChild(barBackground);
+  document.body.appendChild(gorillaHealthBarContainer);
+}
+
+(window as any).updateGorillaHealthDisplay = (currentHealth: number, maxHealth: number) => {
+  if (!gorillaHealthFill || !gorillaHealthText) return;
+
+  const percentage = (currentHealth / maxHealth) * 100;
+  gorillaHealthFill.style.width = percentage + '%';
+  gorillaHealthText.textContent = currentHealth + '/' + maxHealth;
+
+  if (percentage <= 15) {
+    gorillaHealthFill.style.backgroundColor = '#ff0000';
+    gorillaHealthFill.style.boxShadow = 'inset 1px 1px 0 #ff8888';
+  } else if (percentage <= 35) {
+    gorillaHealthFill.style.backgroundColor = '#ff8800';
+    gorillaHealthFill.style.boxShadow = 'inset 1px 1px 0 #ffcc88';
+  } else if (percentage <= 65) {
+    gorillaHealthFill.style.backgroundColor = '#ffff00';
+    gorillaHealthFill.style.boxShadow = 'inset 1px 1px 0 #ffff88';
+  } else {
+    gorillaHealthFill.style.backgroundColor = '#00ff00';
+    gorillaHealthFill.style.boxShadow = 'inset 1px 1px 0 #88ff88';
+  }
+};
