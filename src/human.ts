@@ -5,12 +5,15 @@ import { CharacterControls } from "./characterControls";
 const MAX_HUMAN_HEALTH = 100;
 const HUMAN_SPEED = 1.5;
 const CHASE_RADIUS = 30;
-const FADE_OUT_DURATION = 1.0;
+const FADE_OUT_DURATION = 0.5;
 
 const HUMAN_ATTACK_RANGE = 1.8;
-const HUMAN_ATTACK_DAMAGE = 10;
+const HUMAN_ATTACK_DAMAGE = 5;
 const HUMAN_ATTACK_COOLDOWN_TIME = 1.5;
 const HUMAN_ATTACK_ANIM_HIT_POINT = 0.6;
+
+const PUSHBACK_DAMPING = 0.9;
+const MIN_PUSHBACK_SPEED_THRESHOLD = 0.1;
 
 const POSSIBLE_HUMAN_ATTACK_ANIMATIONS = [
     "Punch_Right", "Punch_Left", "Kick_Right", "Kick_Left"
@@ -27,10 +30,14 @@ export class Human {
   private activeHumans: Map<THREE.Object3D, HealthBar> = new Map();
   private scene: THREE.Scene | null = null;
   private dyingHumans: Map<THREE.Object3D, DyingHumanState> = new Map();
+  private onAllHumansDefeated?: () => void;
+  private initialNumHumans: number = 0;
 
-  constructor(men: THREE.Object3D[], gorilla: THREE.Object3D) {
+  constructor(men: THREE.Object3D[], gorilla: THREE.Object3D, onAllHumansDefeatedCallback?: () => void) {
     this.men = men;
     this.gorilla = gorilla;
+    this.onAllHumansDefeated = onAllHumansDefeatedCallback;
+    this.initialNumHumans = men.length;
 
     if (this.men.length > 0 && this.men[0].parent) {
         this.scene = this.men[0].parent as THREE.Scene;
@@ -47,6 +54,8 @@ export class Human {
             man.userData.currentAttackAnimation = null;
             man.userData.attackAnimationCooldown = 0;
             man.userData.humanAttackAnimationNames = [];
+            man.userData.isBeingPushedBack = false;
+            man.userData.pushbackVelocity = new THREE.Vector3();
 
             const actions = man.userData.actions as Map<string, THREE.AnimationAction> | undefined;
             if (actions) {
@@ -61,6 +70,10 @@ export class Human {
             this.activeHumans.set(man, healthBar);
         }
     });
+
+    if (typeof (window as any).updateHumansRemainingDisplay === 'function') {
+      (window as any).updateHumansRemainingDisplay(this.activeHumans.size);
+    }
   }
 
   public takeDamage(man: THREE.Object3D, amount: number) {
@@ -126,6 +139,25 @@ export class Human {
 
     this.activeHumans.forEach((healthBar, man) => {
       if (man.userData.isDying) return;
+
+      if (man.userData.isBeingPushedBack) {
+        man.position.add(man.userData.pushbackVelocity.clone().multiplyScalar(delta));
+        man.userData.pushbackVelocity.multiplyScalar(PUSHBACK_DAMPING);
+
+        if (man.userData.pushbackVelocity.length() < MIN_PUSHBACK_SPEED_THRESHOLD) {
+          man.userData.isBeingPushedBack = false;
+          man.userData.pushbackVelocity.set(0, 0, 0);
+        }
+        
+        const manPositionForHealthBar = man.position;
+        healthBar.setPosition(manPositionForHealthBar.x, manPositionForHealthBar.y + man.scale.y * 0.8, manPositionForHealthBar.z);
+        if (this.gorilla.userData.camera) {
+          healthBar.sprite.lookAt(this.gorilla.userData.camera.position);
+        }
+        const mixer = man.userData.mixer as THREE.AnimationMixer;
+        if (mixer) mixer.update(delta);
+        return;
+      }
 
       if (man.userData.attackAnimationCooldown > 0) {
         man.userData.attackAnimationCooldown -= delta;
@@ -198,9 +230,9 @@ export class Human {
                 };
                 mixer.addEventListener('finished', onAttackFinished);
             }
-            desiredActionName = selectedAnimName; 
+            desiredActionName = selectedAnimName;
         } else {
-            desiredActionName = "Idle"; 
+            desiredActionName = "Idle";
         }
         performMovement = false;
 
@@ -311,5 +343,14 @@ export class Human {
             }
         });
     });
+
+    if (typeof (window as any).updateHumansRemainingDisplay === 'function') {
+      (window as any).updateHumansRemainingDisplay(this.activeHumans.size);
+    }
+
+    if (this.initialNumHumans > 0 && this.activeHumans.size === 0 && this.dyingHumans.size === 0 && this.men.length === 0 && this.onAllHumansDefeated) {
+        this.onAllHumansDefeated();
+        this.initialNumHumans = 0;
+    }
   }
 }

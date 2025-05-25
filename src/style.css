@@ -1,3 +1,6 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
 :root {
   font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
   line-height: 1.5;
@@ -24,10 +27,7 @@ a:hover {
 
 body {
   margin: 0;
-  display: flex;
-  place-items: center;
-  min-width: 320px;
-  min-height: 100vh;
+  overflow: hidden;
 }
 
 h1 {
@@ -93,5 +93,242 @@ button:focus-visible {
   button {
     background-color: #f9f9f9;
   }
+}
+
+#loadingScreen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: #1a1a1a;
+  color: #FFFFFF;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 9999;
+  font-family: "Press Start 2P", monospace;
+  opacity: 1;
+  transition: opacity 0.3s ease-out;
+  image-rendering: pixelated;
+}
+.loading-container {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  background-color: #2d2d2d;
+  padding: 20px;
+  border: 3px solid #000000;
+  box-shadow:
+    inset 2px 2px 0 #1a1a1a,
+    inset -2px -2px 0 #404040,
+    5px 5px 0 #000000;
+}
+.loader {
+  width: 200px;
+  height: 20px;
+  background-color: #1a1a1a;
+  border: 2px solid #000000;
+  margin-bottom: 20px;
+  position: relative;
+  overflow: hidden;
+}
+.loader-fill {
+  height: 100%;
+  width: 0%;
+  background-color: #00ff00;
+  box-shadow: inset 1px 1px 0 #88ff88;
+  transition: width 0.1s linear;
+}
+.loading-container p {
+  font-size: 16px;
+  margin: 0;
+  color: #FFFFFF;
+  text-shadow: 2px 2px 0 #000000;
+}
+
+/* Gorilla Health Bar Styles */
+.gorilla-health-bar-container {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  font-family: "Press Start 2P", monospace;
+  z-index: 100;
+}
+
+.hp-row {
+  display: flex;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.hp-label {
+  color: #FFFFFF;
+  font-size: 16px;
+  margin-right: 10px;
+  text-shadow: 2px 2px 0 #000000;
+}
+
+.hp-bar-background {
+  width: 250px;
+  height: 25px;
+  background-color: #2d2d2d;
+  border: 3px solid #000000;
+  position: relative;
+  box-shadow: inset 2px 2px 0 #1a1a1a, inset -2px -2px 0 #404040;
+}
+
+.hp-bar-fill {
+  height: 100%;
+  background-color: #00ff00; /* Default green */
+  transition: width 0.3s ease-out, background-color 0.3s ease-out;
+  box-shadow: inset 1px 1px 0 #88ff88; /* Default green shadow */
+}
+
+.hp-bar-fill.low {
+  background-color: #ffff00; /* Yellow */
+  box-shadow: inset 1px 1px 0 #ffff88;
+}
+
+.hp-bar-fill.critical {
+  background-color: #ff8800; /* Orange */
+  box-shadow: inset 1px 1px 0 #ffcc88;
+}
+
+.hp-bar-fill.very-critical {
+  background-color: #ff0000; /* Red */
+  box-shadow: inset 1px 1px 0 #ff8888;
+}
+
+.hp-text {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: #FFFFFF;
+  font-size: 12px;
+  text-shadow: 1px 1px 0 #000000;
+}
+
+.humans-remaining-text {
+  color: #FFFFFF;
+  font-size: 14px;
+  text-shadow: 2px 2px 0 #000000;
+}
+
+/* Controls Guide Styles */
+.controls-container {
+  position: fixed;
+  bottom: 20px;
+  left: 20px;
+  font-family: "Press Start 2P", monospace;
+  color: #FFFFFF;
+  font-size: 14px;
+  text-shadow: 2px 2px 0 #000000;
+  background-color: rgba(0, 0, 0, 0.5);
+  padding: 10px;
+  border: 2px solid #FFFFFF;
+  border-radius: 5px;
+  z-index: 100;
+}
+
+.controls-title {
+  margin: 0 0 10px 0;
+  font-size: 16px;
+  text-decoration: underline;
+}
+
+.controls-text {
+  margin: 0 0 5px 0;
+}
+
+.controls-key {
+  color: #FFFFFF;
+  transition: color 0.1s ease-in-out;
+  /* Specific styling for arrow keys */
+}
+
+#control-key-ArrowLeft {
+  display: inline-block;
+  transform: rotate(-90deg);
+}
+
+#control-key-ArrowRight {
+  display: inline-block;
+  transform: rotate(90deg);
+}
+
+.controls-key.active {
+  color: #00FF00;
+}
+
+/* End Screen Styles */
+.end-screen-container {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.85);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  z-index: 200;
+  font-family: "Press Start 2P", monospace;
+}
+
+.end-screen-message {
+  font-size: 72px;
+  margin-bottom: 50px;
+  text-shadow: 4px 4px 0 #000000;
+}
+
+.end-screen-message.victory {
+  color: #00ff00;
+  text-shadow: 4px 4px 0 #000000, 0 0 20px #00ff00;
+}
+
+.end-screen-message.defeat {
+  color: #ff0000;
+  text-shadow: 4px 4px 0 #000000, 0 0 20px #ff0000;
+}
+
+.end-screen-button {
+  padding: 15px 30px;
+  font-size: 24px;
+  font-family: "Press Start 2P", monospace;
+  color: #ffffff;
+  background-color: #333333;
+  border-radius: 5px;
+  cursor: pointer;
+  text-shadow: 2px 2px 0 #000000;
+  transition: background-color 0.2s ease-out, color 0.2s ease-out, box-shadow 0.2s ease-out;
+}
+
+.end-screen-button.victory {
+  border: 3px solid #00ff00;
+  box-shadow: 0 0 15px #00ff00;
+}
+
+.end-screen-button.victory:hover {
+  background-color: #00ff00;
+  color: #000000;
+  box-shadow: 0 0 25px #00ff00, 0 0 10px #ffffff inset;
+}
+
+.end-screen-button.defeat {
+  border: 3px solid #ff0000;
+  box-shadow: 0 0 15px #ff0000;
+}
+
+.end-screen-button.defeat:hover {
+  background-color: #ff0000;
+  color: #000000;
+  box-shadow: 0 0 25px #ff0000, 0 0 10px #ffffff inset;
 }
 

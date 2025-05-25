@@ -1,33 +1,25 @@
 import * as THREE from "three";
 import { OrbitControls, GLTFLoader, SkeletonUtils } from "three-stdlib";
 import { CharacterControls } from "./characterControls";
-import { createLoadingScreen, removeLoadingScreen } from "./loadingScreen";
+import { createLoadingScreen, removeLoadingScreen, updateLoadingProgress } from "./loadingScreen";
 import { Human } from "./human";
 
-const fontLink = document.createElement("link");
-fontLink.href =
-  "https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap";
-fontLink.rel = "stylesheet";
-document.head.appendChild(fontLink);
+const NUM_HUMANS = 100;
 
-const fontLink2 = document.createElement("link");
-fontLink2.href =
-  "https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap";
-fontLink2.rel = "stylesheet";
-document.head.appendChild(fontLink2);
-
-const loadingScreen = createLoadingScreen();
+createLoadingScreen();
+updateLoadingProgress(0);
 
 const manager = new THREE.LoadingManager();
-manager.onProgress = () => {
-  const loadingText = loadingScreen.querySelector("p");
-  if (loadingText) {
-    loadingText.innerText = "Loading...";
-  }
+manager.onProgress = (_url, itemsLoaded, itemsTotal) => {
+  const progress = (itemsLoaded / itemsTotal) * 100;
+  updateLoadingProgress(progress);
 };
 manager.onLoad = () => {
-  removeLoadingScreen();
-  animate();
+  updateLoadingProgress(100);
+  setTimeout(() => {
+    removeLoadingScreen();
+    animate();
+  }, 500);
 };
 manager.onError = (url) => {
   console.error(`Error loading: ${url}`);
@@ -138,6 +130,23 @@ scene.add(ground);
 
 let controls: CharacterControls;
 let gorillaModel: THREE.Group;
+let human: Human;
+let gorillaLoaded = false;
+let menLoaded = false;
+
+function tryInitializeGameLogic() {
+  if (gorillaLoaded && menLoaded && !human) {
+    if (men.length > 0 && gorillaModel) {
+      human = new Human(men, gorillaModel, displayVictoryScreen);
+      if (controls) {
+        controls.setHumanRef(human);
+      }
+    } else {
+      console.warn("Attempted to initialize game logic but models or men array not ready.");
+    }
+  }
+}
+
 const loaderGorilla = new GLTFLoader(manager);
 loaderGorilla.load("models/Gorilla.glb", (gltf) => {
   gorillaModel = gltf.scene;
@@ -148,28 +157,29 @@ loaderGorilla.load("models/Gorilla.glb", (gltf) => {
   scene.add(gorillaModel);
   const mixer = new THREE.AnimationMixer(gorillaModel);
   const map = new Map<string, THREE.AnimationAction>();
+  const emoteRawName = "loopFightIdle01";
+
   for (const clip of gltf.animations) {
-    const name = clip.name.replace(/^loop/i, "");
-    if (/Idle|Walk|Run|Jump|Attack/i.test(name)) {
-      map.set(name, mixer.clipAction(clip));
+    const processedName = clip.name.replace(/^loop/i, "");
+    if (/Idle|Walk|Run|Jump|Attack/i.test(processedName) || clip.name === emoteRawName) {
+      map.set(processedName, mixer.clipAction(clip));
     }
   }
-  controls = new CharacterControls(gorillaModel, mixer, map, orbit, camera, GORILLA_MAX_HEALTH);
+  controls = new CharacterControls(gorillaModel, mixer, map, orbit, camera, GORILLA_MAX_HEALTH, displayGameOverScreen);
   gorillaModel.userData.controls = controls;
+  gorillaModel.userData.camera = camera;
   createGorillaHealthBarUI();
+  createControlsGuideUI();
   const initialGorillaHealth = controls.getGorillaHealthState();
   (window as any).updateGorillaHealthDisplay(initialGorillaHealth.current, initialGorillaHealth.max);
-  if (men.length > 0) {
-    human = new Human(men, gorillaModel);
-    controls.setHumanRef(human);
-  }
-  gorillaModel.userData.camera = camera;
+  
+  gorillaLoaded = true;
+  tryInitializeGameLogic();
 });
 
 const mixers: THREE.AnimationMixer[] = [];
 const men: THREE.Object3D[] = [];
 (window as any).men = men;
-let human: Human;
 
 const loaderMan = new GLTFLoader(manager);
 loaderMan.load("models/Man.glb", (gltf) => {
@@ -182,7 +192,7 @@ loaderMan.load("models/Man.glb", (gltf) => {
   const kickRightClip = manAnimations.find((clip) => /Kick_Right/i.test(clip.name));
   const kickLeftClip = manAnimations.find((clip) => /Kick_Left/i.test(clip.name));
 
-  for (let i = 0; i < 100; i++) {
+  for (let i = 0; i < NUM_HUMANS; i++) {
     const man = SkeletonUtils.clone(gltf.scene);
     man.traverse((child: any) => {
       if (child.isMesh) {
@@ -220,22 +230,32 @@ loaderMan.load("models/Man.glb", (gltf) => {
     scene.add(man);
   }
 
-  if (gorillaModel) {
-    human = new Human(men, gorillaModel);
-    if (controls) {
-        controls.setHumanRef(human);
-    }
-    gorillaModel.userData.camera = camera;
-    gorillaModel.userData.controls = controls;
-  }
+  menLoaded = true;
+  tryInitializeGameLogic();
 });
 
 const keys: Record<string, boolean> = {};
+const keyHighlightMap: Record<string, string> = {
+  "KeyW": "W", "KeyA": "A", "KeyS": "S", "KeyD": "D",
+  "ArrowUp": "ArrowUp", "ArrowDown": "ArrowDown", "ArrowLeft": "ArrowLeft", "ArrowRight": "ArrowRight",
+  "ShiftLeft": "SHIFT", "ShiftRight": "SHIFT",
+  "Space": "SPACE",
+  "KeyB": "B"
+};
+
 window.addEventListener("keydown", (e) => {
   keys[e.code] = true;
+  const highlightId = keyHighlightMap[e.code];
+  if (highlightId) {
+    updateKeyHighlight(highlightId, true);
+  }
 });
 window.addEventListener("keyup", (e) => {
   keys[e.code] = false;
+  const highlightId = keyHighlightMap[e.code];
+  if (highlightId) {
+    updateKeyHighlight(highlightId, false);
+  }
 });
 
 window.addEventListener("resize", () => {
@@ -257,55 +277,86 @@ function animate() {
 let gorillaHealthBarContainer: HTMLDivElement;
 let gorillaHealthFill: HTMLDivElement;
 let gorillaHealthText: HTMLDivElement;
+let humansRemainingText: HTMLDivElement;
 
 const GORILLA_MAX_HEALTH = 500;
 
 function createGorillaHealthBarUI() {
   gorillaHealthBarContainer = document.createElement('div');
-  gorillaHealthBarContainer.style.position = 'absolute';
-  gorillaHealthBarContainer.style.top = '20px';
-  gorillaHealthBarContainer.style.left = '20px';
-  gorillaHealthBarContainer.style.display = 'flex';
-  gorillaHealthBarContainer.style.alignItems = 'center';
-  gorillaHealthBarContainer.style.fontFamily = '"Press Start 2P", monospace';
-  gorillaHealthBarContainer.style.zIndex = '100';
+  gorillaHealthBarContainer.className = 'gorilla-health-bar-container';
+
+  const hpRow = document.createElement('div');
+  hpRow.className = 'hp-row';
 
   const label = document.createElement('span');
   label.textContent = 'GORILLA HP:';
-  label.style.color = '#FFFFFF';
-  label.style.fontSize = '16px';
-  label.style.marginRight = '10px';
-  label.style.textShadow = '2px 2px 0 #000000';
+  label.className = 'hp-label';
 
   const barBackground = document.createElement('div');
-  barBackground.style.width = '250px';
-  barBackground.style.height = '25px';
-  barBackground.style.backgroundColor = '#2d2d2d';
-  barBackground.style.border = '3px solid #000000';
-  barBackground.style.position = 'relative';
-  barBackground.style.boxShadow = 
-    'inset 2px 2px 0 #1a1a1a, inset -2px -2px 0 #404040';
+  barBackground.className = 'hp-bar-background';
 
   gorillaHealthFill = document.createElement('div');
-  gorillaHealthFill.style.height = '100%';
-  gorillaHealthFill.style.backgroundColor = '#00ff00';
-  gorillaHealthFill.style.transition = 'width 0.3s ease-out';
-  gorillaHealthFill.style.boxShadow = 'inset 1px 1px 0 #88ff88';
+  gorillaHealthFill.className = 'hp-bar-fill';
 
   gorillaHealthText = document.createElement('div');
-  gorillaHealthText.style.position = 'absolute';
-  gorillaHealthText.style.top = '50%';
-  gorillaHealthText.style.left = '50%';
-  gorillaHealthText.style.transform = 'translate(-50%, -50%)';
-  gorillaHealthText.style.color = '#FFFFFF';
-  gorillaHealthText.style.fontSize = '12px';
-  gorillaHealthText.style.textShadow = '1px 1px 0 #000000';
+  gorillaHealthText.className = 'hp-text';
 
   barBackground.appendChild(gorillaHealthFill);
   barBackground.appendChild(gorillaHealthText);
-  gorillaHealthBarContainer.appendChild(label);
-  gorillaHealthBarContainer.appendChild(barBackground);
+  hpRow.appendChild(label);
+  hpRow.appendChild(barBackground);
+  gorillaHealthBarContainer.appendChild(hpRow);
+
+  humansRemainingText = document.createElement('div');
+  humansRemainingText.className = 'humans-remaining-text';
+  humansRemainingText.textContent = 'HUMANS REMAINING: ...';
+  gorillaHealthBarContainer.appendChild(humansRemainingText);
+
   document.body.appendChild(gorillaHealthBarContainer);
+}
+
+function createControlsGuideUI() {
+  const controlsContainer = document.createElement('div');
+  controlsContainer.className = 'controls-container';
+
+  const title = document.createElement('h3');
+  title.textContent = 'Controls:';
+  title.className = 'controls-title';
+
+  const movementText = document.createElement('p');
+  movementText.innerHTML = `Move: <span id="control-key-W" class="controls-key">W</span><span id="control-key-A" class="controls-key">A</span><span id="control-key-S" class="controls-key">S</span><span id="control-key-D" class="controls-key">D</span> / <span id="control-key-ArrowUp" class="controls-key">↑</span><span id="control-key-ArrowDown" class="controls-key">↓</span><span id="control-key-ArrowLeft" class="controls-key">↑</span><span id="control-key-ArrowRight" class="controls-key">↑</span>`;
+  movementText.className = 'controls-text';
+
+  const sprintText = document.createElement('p');
+  sprintText.innerHTML = `Sprint: <span id="control-key-SHIFT" class="controls-key">SHIFT</span>`;
+  sprintText.className = 'controls-text';
+
+  const attackText = document.createElement('p');
+  attackText.innerHTML = `Attack: <span id="control-key-SPACE" class="controls-key">SPACE</span>`;
+  attackText.className = 'controls-text';
+
+  const emoteText = document.createElement('p');
+  emoteText.innerHTML = `Emote: <span id="control-key-B" class="controls-key">B</span>`;
+  emoteText.className = 'controls-text';
+  emoteText.style.marginBottom = "0";
+
+  controlsContainer.appendChild(title);
+  controlsContainer.appendChild(movementText);
+  controlsContainer.appendChild(sprintText);
+  controlsContainer.appendChild(attackText);
+  controlsContainer.appendChild(emoteText);
+  document.body.appendChild(controlsContainer);
+}
+
+function updateKeyHighlight(keyIdSuffix: string, isActive: boolean) {
+  const keyElement = document.getElementById(`control-key-${keyIdSuffix}`) as HTMLElement;
+  if (keyElement) {
+    if (isActive) {
+      keyElement.classList.add('active');
+    } else {
+      keyElement.classList.remove('active');
+    }
+  }
 }
 
 (window as any).updateGorillaHealthDisplay = (currentHealth: number, maxHealth: number) => {
@@ -315,17 +366,47 @@ function createGorillaHealthBarUI() {
   gorillaHealthFill.style.width = percentage + '%';
   gorillaHealthText.textContent = currentHealth + '/' + maxHealth;
 
+  gorillaHealthFill.className = 'hp-bar-fill';
   if (percentage <= 15) {
-    gorillaHealthFill.style.backgroundColor = '#ff0000';
-    gorillaHealthFill.style.boxShadow = 'inset 1px 1px 0 #ff8888';
+    gorillaHealthFill.classList.add('very-critical');
   } else if (percentage <= 35) {
-    gorillaHealthFill.style.backgroundColor = '#ff8800';
-    gorillaHealthFill.style.boxShadow = 'inset 1px 1px 0 #ffcc88';
+    gorillaHealthFill.classList.add('critical');
   } else if (percentage <= 65) {
-    gorillaHealthFill.style.backgroundColor = '#ffff00';
-    gorillaHealthFill.style.boxShadow = 'inset 1px 1px 0 #ffff88';
-  } else {
-    gorillaHealthFill.style.backgroundColor = '#00ff00';
-    gorillaHealthFill.style.boxShadow = 'inset 1px 1px 0 #88ff88';
+    gorillaHealthFill.classList.add('low');
   }
 };
+
+(window as any).updateHumansRemainingDisplay = (count: number) => {
+  if (humansRemainingText) {
+    humansRemainingText.textContent = `HUMANS REMAINING: ${count}`;
+  }
+};
+
+function displayEndScreen(isVictory: boolean) {
+  const container = document.createElement('div');
+  container.className = 'end-screen-container';
+
+  const messageText = document.createElement('h1');
+  messageText.textContent = isVictory ? 'Victory!' : 'You Lose!';
+  messageText.className = isVictory ? 'end-screen-message victory' : 'end-screen-message defeat';
+
+  const playAgainButton = document.createElement('button');
+  playAgainButton.textContent = 'Play Again';
+  playAgainButton.className = isVictory ? 'end-screen-button victory' : 'end-screen-button defeat';
+
+  playAgainButton.onclick = () => {
+    window.location.reload();
+  };
+
+  container.appendChild(messageText);
+  container.appendChild(playAgainButton);
+  document.body.appendChild(container);
+}
+
+function displayVictoryScreen() {
+  displayEndScreen(true);
+}
+
+function displayGameOverScreen() {
+  displayEndScreen(false);
+}
