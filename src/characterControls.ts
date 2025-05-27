@@ -45,6 +45,8 @@ export class CharacterControls {
   private emoteAnimationName: string = "FightIdle01";
   private emoteFinishListener: any = null;
 
+  public hasGorillaMovedInitially: boolean = false;
+
   constructor(
     model: THREE.Group,
     mixer: THREE.AnimationMixer,
@@ -99,56 +101,21 @@ export class CharacterControls {
 
   update(delta: number, keys: Record<string, boolean>) {
     const tryingToAttack = keys[SPACE];
-    const tryingToEmote = keys["KeyB"];
     const tryingToMove = keys["ArrowUp"] || keys["KeyW"] || keys["ArrowDown"] || keys["KeyS"] || keys["ArrowLeft"] || keys["KeyA"] || keys["ArrowRight"] || keys["KeyD"];
 
     if (this.isEmoting) {
-      if (tryingToAttack || tryingToEmote || tryingToMove) {
+      if (tryingToAttack) {
         if (this.emoteFinishListener) {
           this.mixer.removeEventListener('finished', this.emoteFinishListener);
           this.emoteFinishListener = null;
         }
         this.isEmoting = false;
+        const actionToRevert = (this.animationsMap.has(this.previousActionBeforeEmote) && this.previousActionBeforeEmote !== this.emoteAnimationName)
+                               ? this.previousActionBeforeEmote
+                               : "Idle";
+        this.playAnim(actionToRevert);
       } else {
         this.mixer.update(delta);
-        return;
-      }
-    }
-
-    if (tryingToEmote && !this.isAttacking && !this.isEmoting) {
-      const emoteAction = this.animationsMap.get(this.emoteAnimationName);
-      if (emoteAction) {
-        this.isEmoting = true;
-        this.previousActionBeforeEmote = this.currentAction;
-        const currentAnim = this.animationsMap.get(this.currentAction);
-        if (currentAnim && currentAnim.isRunning() && currentAnim !== emoteAction) {
-            currentAnim.fadeOut(this.fadeDuration);
-        }
-
-        emoteAction.reset();
-        emoteAction.setLoop(THREE.LoopOnce, 1);
-        emoteAction.clampWhenFinished = true;
-        emoteAction.timeScale = 1.5;
-        emoteAction.fadeIn(this.fadeDuration).play();
-        this.currentAction = this.emoteAnimationName;
-
-        this.emoteFinishListener = (event: any) => {
-          if (event.action === emoteAction) {
-            this.mixer.removeEventListener('finished', this.emoteFinishListener!);
-            this.emoteFinishListener = null;
-            this.isEmoting = false;
-            const actionToRevert = this.animationsMap.has(this.previousActionBeforeEmote) && this.previousActionBeforeEmote !== this.emoteAnimationName
-                                   ? this.previousActionBeforeEmote
-                                   : "Idle";
-            this.playAnim(actionToRevert);
-          }
-        };
-        this.mixer.addEventListener('finished', this.emoteFinishListener);
-
-        this.mixer.update(delta);
-        return;
-      } else {
-        console.warn(`Emote animation "${this.emoteAnimationName}" not found!`);
       }
     }
 
@@ -193,15 +160,7 @@ export class CharacterControls {
                     damageAmount = Math.max(0, damageAmount);
 
                     if (damageAmount > 0) {
-                      this.humanRef.takeDamage(man, damageAmount);
-
-                      if (!man.userData.isBeingPushedBack) {
-                        const pushbackDirection = new THREE.Vector3().subVectors(man.position, this.model.position);
-                        pushbackDirection.y = 0;
-                        pushbackDirection.normalize();
-                        man.userData.pushbackVelocity = pushbackDirection.multiplyScalar(this.initialPushbackSpeed);
-                        man.userData.isBeingPushedBack = true;
-                      }
+                      this.humanRef.takeDamage(man, damageAmount, this.model.position);
                     }
                   }
                 }
@@ -242,7 +201,7 @@ export class CharacterControls {
     if (moveForward) moveDistance = currentVelocity * delta;
     if (moveBackward) moveDistance = -currentVelocity * delta;
 
-    if (moveDistance !== 0 && !this.isEmoting) {
+    if (moveDistance !== 0) {
         const moveVector = new THREE.Vector3(0, 0, 1);
         moveVector.applyQuaternion(this.model.quaternion);
         moveVector.normalize();
@@ -270,9 +229,20 @@ export class CharacterControls {
          ) {
         this.playAnim(desiredLocomotionAction, newTimeScale);
       }
+    } else if (this.isAttacking) {
+        this.mixer.update(delta);
     }
 
-    this.mixer.update(delta);
+    if (moveForward || moveBackward) {
+      if (!this.hasGorillaMovedInitially) {
+        this.hasGorillaMovedInitially = true;
+      }
+    }
+
+    if (!this.isEmoting && !this.isAttacking) {
+        this.mixer.update(delta);
+    }
+
     this.updateCamera();
   }
 
@@ -280,12 +250,11 @@ export class CharacterControls {
     const toPlay = this.animationsMap.get(name);
     const current = this.animationsMap.get(this.currentAction);
 
-    if (this.isEmoting && name !== this.emoteAnimationName) {
-
-    } else if (this.isEmoting) {
-
-    } else if (current && current !== toPlay) {
-      current.fadeOut(this.fadeDuration);
+    if (current && current !== toPlay) {
+        if (this.isEmoting && (name === "Walk" || name === "Run" || name === "Idle") && name !== this.emoteAnimationName) {
+        } else {
+            current.fadeOut(this.fadeDuration);
+        }
     }
 
     if (toPlay) {
@@ -300,16 +269,51 @@ export class CharacterControls {
         toPlay.clampWhenFinished = true;
         toPlay.fadeIn(this.fadeDuration).play();
 
-        const listener = (event: any) => {
+        const existingListener = this.model.userData.attackAnimTimeoutId;
+        if (existingListener) {
+          clearTimeout(existingListener);
+          if (this.model.userData.attackAnimFinishListener) {
+            this.mixer.removeEventListener('finished', this.model.userData.attackAnimFinishListener);
+          }
+        }
+
+        const attackClipDuration = toPlay.getClip().duration;
+        const effectiveDuration = attackClipDuration / (timeScale || 1);
+        const cutOffTime = effectiveDuration * 0.75;
+
+        const attackAnimFinishListener = (event: any) => {
           if (event.action === toPlay) {
-            this.mixer.removeEventListener('finished', listener);
-            this.isAttacking = false;
-            if (this.currentAction === "AttackComboInPlace") {
-                this.playAnim("Idle");
+            this.mixer.removeEventListener('finished', attackAnimFinishListener);
+            this.model.userData.attackAnimFinishListener = null;
+            if (this.isAttacking) { 
+              this.isAttacking = false;
+              if (this.currentAction === "AttackComboInPlace") {
+                  this.playAnim("Idle");
+              }
             }
           }
         };
-        this.mixer.addEventListener('finished', listener);
+        this.model.userData.attackAnimFinishListener = attackAnimFinishListener;
+        this.mixer.addEventListener('finished', attackAnimFinishListener);
+
+        this.model.userData.attackAnimTimeoutId = setTimeout(() => {
+          this.model.userData.attackAnimTimeoutId = null;
+          if (this.mixer.hasEventListener('finished', attackAnimFinishListener)) {
+             this.mixer.removeEventListener('finished', attackAnimFinishListener); 
+             this.model.userData.attackAnimFinishListener = null;
+          }
+
+          if (this.isAttacking && this.currentAction === "AttackComboInPlace") {
+            const currentAttackAction = this.animationsMap.get("AttackComboInPlace");
+            if (currentAttackAction && currentAttackAction.isRunning()) {
+                currentAttackAction.fadeOut(this.fadeDuration);
+            }
+            
+            this.isAttacking = false;
+            this.playAnim("Idle");
+          }
+        }, cutOffTime * 1000);
+
       } else if (name === this.emoteAnimationName) {
         toPlay.reset();
         toPlay.setLoop(THREE.LoopOnce, 1);
@@ -352,5 +356,45 @@ export class CharacterControls {
     this.camera.position.copy(desiredPosition);
     this.orbit.target.copy(this.cameraTarget);
     this.orbit.update();
+  }
+
+  public triggerEmote() {
+    if (this.isAttacking || this.isEmoting) return;
+
+    const emoteAction = this.animationsMap.get(this.emoteAnimationName);
+    if (emoteAction) {
+      this.isEmoting = true;
+      this.previousActionBeforeEmote = this.currentAction;
+      const currentAnim = this.animationsMap.get(this.currentAction);
+      if (currentAnim && currentAnim.isRunning() && currentAnim !== emoteAction) {
+          currentAnim.fadeOut(this.fadeDuration);
+      }
+
+      emoteAction.reset();
+      const clipDuration = emoteAction.getClip().duration;
+      const startTime = clipDuration * 0.20;
+      emoteAction.time = startTime;
+
+      emoteAction.setLoop(THREE.LoopOnce, 1);
+      emoteAction.clampWhenFinished = true;
+      emoteAction.timeScale = 1.5;
+      emoteAction.fadeIn(this.fadeDuration).play();
+      this.currentAction = this.emoteAnimationName;
+
+      this.emoteFinishListener = (event: any) => {
+        if (event.action === emoteAction) {
+          this.mixer.removeEventListener('finished', this.emoteFinishListener!);
+          this.emoteFinishListener = null;
+          this.isEmoting = false;
+          const actionToRevert = this.animationsMap.has(this.previousActionBeforeEmote) && this.previousActionBeforeEmote !== this.emoteAnimationName
+                                 ? this.previousActionBeforeEmote
+                                 : "Idle";
+          this.playAnim(actionToRevert);
+        }
+      };
+      this.mixer.addEventListener('finished', this.emoteFinishListener);
+    } else {
+      console.warn(`Emote animation "${this.emoteAnimationName}" not found!`);
+    }
   }
 }

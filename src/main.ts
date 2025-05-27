@@ -18,6 +18,7 @@ manager.onLoad = () => {
   updateLoadingProgress(100);
   setTimeout(() => {
     removeLoadingScreen();
+    startStopwatch();
     animate();
   }, 500);
 };
@@ -55,8 +56,8 @@ scene.add(ambientLight);
 const dir = new THREE.DirectionalLight(0xffffff, 1.2);
 dir.position.set(50, 100, 50);
 dir.castShadow = true;
-dir.shadow.mapSize.width = 4096;
-dir.shadow.mapSize.height = 4096;
+dir.shadow.mapSize.width = 2048;
+dir.shadow.mapSize.height = 2048;
 dir.shadow.camera.left = -200;
 dir.shadow.camera.right = 200;
 dir.shadow.camera.top = 200;
@@ -64,7 +65,7 @@ dir.shadow.camera.bottom = -200;
 dir.shadow.camera.near = 0.5;
 dir.shadow.camera.far = 1000;
 dir.shadow.bias = -0.0001;
-dir.shadow.radius = 4;
+dir.shadow.radius = 3;
 dir.shadow.camera.updateProjectionMatrix();
 scene.add(dir);
 
@@ -191,16 +192,17 @@ loaderMan.load("models/Man.glb", (gltf) => {
   const punchLeftClip = manAnimations.find((clip) => /Punch_Left/i.test(clip.name));
   const kickRightClip = manAnimations.find((clip) => /Kick_Right/i.test(clip.name));
   const kickLeftClip = manAnimations.find((clip) => /Kick_Left/i.test(clip.name));
+  const hitRecieveClip = manAnimations.find((clip) => clip.name === "HitRecieve_2" || /HitRecieve_2/i.test(clip.name));
 
   for (let i = 0; i < NUM_HUMANS; i++) {
     const man = SkeletonUtils.clone(gltf.scene);
     man.traverse((child: any) => {
       if (child.isMesh) {
-        child.castShadow = true;
+        child.castShadow = false;
         child.receiveShadow = true;
       }
     });
-    const safeZone = 5;
+    const safeZone = 10;
     let x = 0,
       z = 0;
     do {
@@ -222,6 +224,7 @@ loaderMan.load("models/Man.glb", (gltf) => {
     if (punchLeftClip) actions.set("Punch_Left", mixer.clipAction(punchLeftClip));
     if (kickRightClip) actions.set("Kick_Right", mixer.clipAction(kickRightClip));
     if (kickLeftClip) actions.set("Kick_Left", mixer.clipAction(kickLeftClip));
+    if (hitRecieveClip) actions.set("HitRecieve_2", mixer.clipAction(hitRecieveClip));
     man.userData.mixer = mixer;
     man.userData.actions = actions;
     man.userData.currentAction = "Idle";
@@ -249,6 +252,9 @@ window.addEventListener("keydown", (e) => {
   if (highlightId) {
     updateKeyHighlight(highlightId, true);
   }
+  if (e.code === "KeyB" && controls && controls.triggerEmote) {
+    controls.triggerEmote();
+  }
 });
 window.addEventListener("keyup", (e) => {
   keys[e.code] = false;
@@ -269,6 +275,7 @@ function animate() {
   const dt = clock.getDelta();
   if (controls) controls.update(dt, keys);
   if (human) human.update(dt);
+  updateStopwatchDisplay();
   orbit.update();
   renderer.render(scene, camera);
   requestAnimationFrame(animate);
@@ -278,8 +285,10 @@ let gorillaHealthBarContainer: HTMLDivElement;
 let gorillaHealthFill: HTMLDivElement;
 let gorillaHealthText: HTMLDivElement;
 let humansRemainingText: HTMLDivElement;
+let stopwatchTextElement: HTMLDivElement;
 
 const GORILLA_MAX_HEALTH = 500;
+let stopwatchStartTime: number = 0;
 
 function createGorillaHealthBarUI() {
   gorillaHealthBarContainer = document.createElement('div');
@@ -312,7 +321,38 @@ function createGorillaHealthBarUI() {
   humansRemainingText.textContent = 'HUMANS REMAINING: ...';
   gorillaHealthBarContainer.appendChild(humansRemainingText);
 
+  stopwatchTextElement = document.createElement('div');
+  stopwatchTextElement.className = 'humans-remaining-text';
+  stopwatchTextElement.textContent = 'TIME: 00:00';
+  stopwatchTextElement.style.marginTop = '5px';
+  gorillaHealthBarContainer.appendChild(stopwatchTextElement);
+
   document.body.appendChild(gorillaHealthBarContainer);
+}
+
+function startStopwatch() {
+  stopwatchStartTime = Date.now();
+}
+
+function updateStopwatchDisplay() {
+  if (!stopwatchStartTime || !stopwatchTextElement) return;
+
+  const elapsedMilliseconds = Date.now() - stopwatchStartTime;
+  const totalSeconds = Math.floor(elapsedMilliseconds / 1000);
+
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  const formattedHours = String(hours).padStart(2, '0');
+  const formattedMinutes = String(minutes).padStart(2, '0');
+  const formattedSeconds = String(seconds).padStart(2, '0');
+
+  if (hours > 0) {
+    stopwatchTextElement.textContent = `TIME: ${formattedHours}:${formattedMinutes}:${formattedSeconds}`;
+  } else {
+    stopwatchTextElement.textContent = `TIME: ${formattedMinutes}:${formattedSeconds}`;
+  }
 }
 
 function createControlsGuideUI() {
