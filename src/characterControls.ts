@@ -33,7 +33,6 @@ export class CharacterControls {
   private maxDamage = 100;
   private minDistanceForMaxDamage = 1;
   private frontalConeAngleForMaxDamage = Math.PI / 3;
-  private initialPushbackSpeed = 5;
 
   maxGorillaHealth: number;
   currentGorillaHealth: number;
@@ -101,7 +100,6 @@ export class CharacterControls {
 
   update(delta: number, keys: Record<string, boolean>) {
     const tryingToAttack = keys[SPACE];
-    const tryingToMove = keys["ArrowUp"] || keys["KeyW"] || keys["ArrowDown"] || keys["KeyS"] || keys["ArrowLeft"] || keys["KeyA"] || keys["ArrowRight"] || keys["KeyD"];
 
     if (this.isEmoting) {
       if (tryingToAttack) {
